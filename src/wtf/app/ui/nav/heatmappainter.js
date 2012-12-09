@@ -175,10 +175,10 @@ wtf.app.ui.nav.HeatmapPainter.Bar_ = function(db, name, eventTypes) {
    * Cached buckets, in order.
    * This is used to prevent reallocating the list every frame. Whenever the
    * number of buckets changes it must be reallocated.
-   * @type {!Uint32Array}
+   * @type {!Float32Array}
    * @private
    */
-  this.cachedBuckets_ = new Uint32Array(0);
+  this.cachedBuckets_ = new Float32Array(0);
 };
 
 
@@ -232,58 +232,78 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
   // smooth transitions during zoom since buckets cleanly split or join by
   // factors 2 instead having data slide between neighboring buckets (which
   // can flicker).
-  var pixelsPerMs = width / (timeRight - timeLeft);
-  var minBucketWidthPx = 6;
+//  var pixelsPerMs = width / (timeRight - timeLeft);
+//  var minBucketWidthPx = 6;
   // This is the bucket duration we would use for exactly 6px bucket
   // width.
-  var unsnappedBucketDuration = minBucketWidthPx / pixelsPerMs;
+//  var unsnappedBucketDuration = minBucketWidthPx / pixelsPerMs;
   // Now snap that to a greater of equal integral power of 2.
-  var log2 = Math.log(unsnappedBucketDuration) / Math.LN2;
-  var bucketDuration = Math.pow(2, Math.ceil(log2));
-  var bucketWidth = bucketDuration * pixelsPerMs;
+//  var log2 = Math.log(unsnappedBucketDuration) / Math.LN2;
+//  var bucketDuration = Math.pow(2, Math.ceil(log2));
+  var bucketWidth = 1; //bucketDuration * pixelsPerMs;
 
   var buckets = this.cachedBuckets_;
-  var bucketCount = Math.ceil(width / bucketWidth) + 1;
+  var bucketCount = width; //Math.ceil(width / bucketWidth) + 1;
   if (buckets.length != bucketCount) {
-    buckets = this.cachedBuckets_ = new Uint32Array(bucketCount);
+    buckets = this.cachedBuckets_ = new Float32Array(bucketCount);
   } else {
     for (var n = 0; n < buckets.length; n++) {
       buckets[n] = 0;
     }
   }
 
-  var bucketTimeLeft = timeLeft - timeLeft % bucketDuration;
-  var bucketTimeRight = bucketTimeLeft + bucketDuration * bucketCount;
-  var bucketLeft = wtf.math.remap(
-      bucketTimeLeft, timeLeft, timeRight, 0, width);
-  var bucketMax = 0;
+  var bucketTimeLeft = timeLeft; // - timeLeft % bucketDuration;
+  var bucketTimeRight = timeRight; //bucketTimeLeft + bucketDuration * bucketCount;
+  var bucketLeft = 0; //wtf.math.remap(
+      //bucketTimeLeft, timeLeft, timeRight, 0, width);
 
   for (var n = 0; n < this.indicies_.length; n++) {
     var index = this.indicies_[n];
     index.forEach(bucketTimeLeft, bucketTimeRight, function(e) {
-      var bucketIndex = Math.floor((e.time - bucketTimeLeft) / bucketDuration);
-      var bucketValue = buckets[bucketIndex];
-      bucketValue++;
-      buckets[bucketIndex] = bucketValue;
-      if (bucketValue > bucketMax) {
-        bucketMax = bucketValue;
+      var mid, weight;
+      if (e.scope) {
+        var start = e.scope.getEnterEvent().time;
+        var end = e.scope.getLeaveEvent().time;
+        mid = (start + end) / 2;
+        weight = (end - start);
+      } else {
+        mid = e.time;
+        weight = 1;
+      }
+  //    var bucketIndex = Math.floor((mid - bucketTimeLeft) / bucketDuration);
+  var bucketIndex= Math.floor(wtf.math.remap(mid, timeLeft, timeRight, 0, width));
+      if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+        var bucketValue = buckets[bucketIndex];
+        bucketValue += weight;
+        buckets[bucketIndex] = bucketValue;
       }
     }, this);
   }
 
-  //bucketMax = 100;
+  uniform_blur(buckets, new Array(15));
+  uniform_blur(buckets, new Array(15));
+  uniform_blur(buckets, new Array(15));
+
+  var bucketMax = 0;
+  for (var n = 0; n < buckets.length; n++) {
+    if (buckets[n] > bucketMax) {
+      bucketMax = buckets[n];
+    }
+  }
 
   ctx.fillStyle = this.color_;
   var bucketTime = bucketTimeLeft;
+  var rectLeft = wtf.math.remap(bucketTime, timeLeft, timeRight, 0, width);
   for (var n = 0; n < buckets.length; n++) {
     var value = buckets[n] / bucketMax;
     if (value) {
-      var bx = wtf.math.remap(bucketTime, timeLeft, timeRight, 0, width);
+      var bx = rectLeft; //wtf.math.remap(bucketTime, timeLeft, timeRight, 0, width);
       ctx.globalAlpha = value;
       ctx.fillRect(bx, y, bucketWidth, h);
     }
 
-    bucketTime += bucketDuration;
+    //bucketTime += bucketDuration;
+    rectLeft += bucketWidth;
   }
 
   var nameHeight = 16;
@@ -297,3 +317,23 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
 
   ctx.globalAlpha = 1;
 };
+
+function uniform_blur(A, b) {
+  var aLen = A.length;
+  var bLen = b.length;
+  var mid = (bLen - 1) / 2;
+  var sum = 0;
+  for (var i = 0; i < bLen; i++) {
+    b[i] = A[i];
+    sum += b[i];
+  }
+  A[bLen - 1 - mid] = sum / bLen;
+  for (var i = bLen; i < aLen; i++) {
+    var j = i % bLen;
+    sum -= b[j];
+    b[j] = A[i];
+    sum += A[i];
+    A[i - mid] = sum / bLen;
+  }
+}
+
