@@ -20,13 +20,13 @@ goog.require('wtf.ui.TimeRangePainter');
 
 /**
  * Paints a grid into the view.
- * @param {!wtf.ui.PaintContext} parentContext Parent paint context.
+ * @param {!HTMLCanvasElement} canvas Canvas element.
  * @param {number=} opt_y Y offset, in pixels.
  * @constructor
  * @extends {wtf.ui.TimeRangePainter}
  */
-wtf.ui.GridPainter = function(parentContext, opt_y) {
-  goog.base(this, parentContext);
+wtf.ui.GridPainter = function(canvas, opt_y) {
+  goog.base(this, canvas);
 
   /**
    * Y offset, in pixels.
@@ -73,8 +73,8 @@ wtf.ui.GridPainter.prototype.repaintInternal = function(ctx, width, height) {
   // Clip to extents.
   this.clip(0, y, width, h);
 
-  var timeLeft = this.timeLeft - this.timeOffset;
-  var timeRight = this.timeRight - this.timeOffset;
+  var timeLeft = this.timeLeft;
+  var timeRight = this.timeRight;
   var duration = timeRight - timeLeft;
   var granularity = this.minGranularity_;
   var n = 0;

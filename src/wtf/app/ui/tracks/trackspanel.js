@@ -20,17 +20,17 @@ goog.require('goog.soy');
 goog.require('goog.style');
 goog.require('wtf.analysis.db.EventDatabase');
 goog.require('wtf.analysis.db.Granularity');
+goog.require('wtf.app.ui.SelectionPainter');
 goog.require('wtf.app.ui.TabPanel');
 goog.require('wtf.app.ui.tracks.TrackInfoBar');
 goog.require('wtf.app.ui.tracks.ZonePainter');
 goog.require('wtf.app.ui.tracks.trackspanel');
 goog.require('wtf.events.EventType');
 goog.require('wtf.ui.GridPainter');
-goog.require('wtf.ui.PaintContext');
+goog.require('wtf.ui.Painter');
 goog.require('wtf.ui.RulerPainter');
 goog.require('wtf.ui.Tooltip');
 goog.require('wtf.ui.zoom.Viewport');
-goog.require('wtf.util.canvas');
 
 
 
@@ -63,49 +63,6 @@ wtf.app.ui.tracks.TracksPanel = function(documentView) {
   this.registerDisposable(this.infobar_);
 
   /**
-   * Track canvas.
-   * @type {!HTMLCanvasElement}
-   * @private
-   */
-  this.trackCanvas_ = /** @type {!HTMLCanvasElement} */ (
-      this.getChildElement(goog.getCssName('wtfAppUiTracksPanelCanvas')));
-
-  var paintContext = new wtf.ui.PaintContext(this.trackCanvas_);
-  this.setPaintContext(paintContext);
-
-  var body = this.getDom().getDocument().body;
-  goog.asserts.assert(body);
-  /**
-   * Tooltip.
-   * @type {!wtf.ui.Tooltip}
-   * @private
-   */
-  this.tooltip_ = new wtf.ui.Tooltip(body);
-  this.registerDisposable(this.tooltip_);
-  this.tooltip_.bindEvents(this);
-
-  /**
-   * A list of all paint contexts that extend {@see wtf.ui.TimeRangePainter}.
-   * This is used to update all of the painters when the current time range
-   * changes.
-   * @type {!Array.<!wtf.ui.TimeRangePainter>}
-   * @private
-   */
-  this.timeRangePainters_ = [];
-
-  var gridPainter = new wtf.ui.GridPainter(paintContext);
-  gridPainter.setGranularities(
-      wtf.app.ui.tracks.TracksPanel.MIN_GRANULARITY_,
-      wtf.app.ui.tracks.TracksPanel.MAX_GRANULARITY_);
-  this.timeRangePainters_.push(gridPainter);
-
-  var rulerPainter = new wtf.ui.RulerPainter(paintContext);
-  rulerPainter.setGranularities(
-      wtf.app.ui.tracks.TracksPanel.MIN_GRANULARITY_,
-      wtf.app.ui.tracks.TracksPanel.MAX_GRANULARITY_);
-  this.timeRangePainters_.push(rulerPainter);
-
-  /**
    * Zooming viewport.
    * @type {!wtf.ui.zoom.Viewport}
    * @private
@@ -134,27 +91,72 @@ wtf.app.ui.tracks.TracksPanel = function(documentView) {
 
         for (var n = 0; n < this.timeRangePainters_.length; n++) {
           var painter = this.timeRangePainters_[n];
-          painter.setTimeRange(0, timeLeft, timeRight);
+          painter.setTimeRange(timeLeft, timeRight);
         }
 
         this.requestRepaint();
       }, this);
-  this.viewport_.registerElement(this.trackCanvas_);
   // TODO(benvanik): set to something larger to get more precision.
   this.viewport_.setSceneSize(1, 1);
   documentView.registerViewport(this.viewport_);
 
-  // TODO(benvanik): replace viewport stuff and share this binding in control.
-  this.viewport_.addListener(
-      wtf.ui.zoom.Viewport.EventType.CLICK,
-      function(x, y) {
-        var canvas = paintContext.getCanvas();
-        var ctx = paintContext.getCanvasContext2d();
-        var scale = wtf.util.canvas.getCanvasPixelRatio(ctx);
-        var width = canvas.width / scale;
-        var height = canvas.height / scale;
-        paintContext.onClick(x, y, width, height);
-      }, this);
+  /**
+   * Track canvas.
+   * @type {!HTMLCanvasElement}
+   * @private
+   */
+  this.trackCanvas_ = /** @type {!HTMLCanvasElement} */ (
+      this.getChildElement(goog.getCssName('wtfAppUiTracksPanelCanvas')));
+
+  var paintContext = new wtf.ui.Painter(this.trackCanvas_);
+  this.setPaintContext(paintContext);
+
+  /**
+   * Tooltip.
+   * @type {!wtf.ui.Tooltip}
+   * @private
+   */
+  this.tooltip_ = new wtf.ui.Tooltip(this.getDom());
+  this.registerDisposable(this.tooltip_);
+  this.setTooltip(this.tooltip_);
+
+  /**
+   * A list of all paint contexts that extend {@see wtf.ui.TimeRangePainter}.
+   * This is used to update all of the painters when the current time range
+   * changes.
+   * @type {!Array.<!wtf.ui.TimeRangePainter>}
+   * @private
+   */
+  this.timeRangePainters_ = [];
+
+  var gridPainter = new wtf.ui.GridPainter(this.trackCanvas_);
+  paintContext.addChildPainter(gridPainter);
+  gridPainter.setGranularities(
+      wtf.app.ui.tracks.TracksPanel.MIN_GRANULARITY_,
+      wtf.app.ui.tracks.TracksPanel.MAX_GRANULARITY_);
+  this.timeRangePainters_.push(gridPainter);
+
+  /**
+   * Selection painter.
+   * @type {!wtf.app.ui.SelectionPainter}
+   * @private
+   */
+  this.selectionPainter_ = new wtf.app.ui.SelectionPainter(
+      this.trackCanvas_, documentView.getSelection(), this.viewport_);
+  paintContext.addChildPainter(this.selectionPainter_);
+  this.timeRangePainters_.push(this.selectionPainter_);
+
+  /**
+   * Ruler painter.
+   * @type {!wtf.ui.RulerPainter}
+   * @private
+   */
+  this.rulerPainter_ = new wtf.ui.RulerPainter(this.trackCanvas_);
+  paintContext.addChildPainter(this.rulerPainter_);
+  this.rulerPainter_.setGranularities(
+      wtf.app.ui.tracks.TracksPanel.MIN_GRANULARITY_,
+      wtf.app.ui.tracks.TracksPanel.MAX_GRANULARITY_);
+  this.timeRangePainters_.push(this.rulerPainter_);
 
   // Watch for zones and add as needed.
   db.addListener(wtf.analysis.db.EventDatabase.EventType.ZONES_ADDED,
@@ -163,6 +165,9 @@ wtf.app.ui.tracks.TracksPanel = function(documentView) {
       }, this);
   var zoneIndices = db.getZoneIndices();
   goog.array.forEach(zoneIndices, this.addZoneTrack_, this);
+
+  // Done last so any other handlers are properly registered.
+  this.viewport_.registerElement(this.trackCanvas_);
 
   this.requestRepaint();
 };
@@ -228,6 +233,7 @@ wtf.app.ui.tracks.TracksPanel.prototype.addZoneTrack_ = function(zoneIndex) {
 
   var docView = this.getDocumentView();
   var zonePainter = new wtf.app.ui.tracks.ZonePainter(
-      paintContext, this.db_, zoneIndex, docView.getSelection());
+      this.trackCanvas_, this.db_, zoneIndex, docView.getSelection());
+  paintContext.addChildPainter(zonePainter, this.rulerPainter_);
   this.timeRangePainters_.push(zonePainter);
 };

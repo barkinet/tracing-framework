@@ -13,25 +13,18 @@
 
 goog.provide('wtf.ui.TimeRangePainter');
 
-goog.require('wtf.ui.PaintContext');
+goog.require('wtf.ui.Painter');
 
 
 
 /**
  * Paints a time range into the view.
- * @param {!wtf.ui.PaintContext} parentContext Parent paint context.
+ * @param {!HTMLCanvasElement} canvas Canvas element.
  * @constructor
- * @extends {wtf.ui.PaintContext}
+ * @extends {wtf.ui.Painter}
  */
-wtf.ui.TimeRangePainter = function(parentContext) {
-  goog.base(this, parentContext.getCanvas(), parentContext);
-
-  /**
-   * Time offset (time of the first event in the database).
-   * @type {number}
-   * @protected
-   */
-  this.timeOffset = 0;
+wtf.ui.TimeRangePainter = function(canvas) {
+  goog.base(this, canvas);
 
   /**
    * Left-most visible time.
@@ -47,18 +40,15 @@ wtf.ui.TimeRangePainter = function(parentContext) {
    */
   this.timeRight = 0;
 };
-goog.inherits(wtf.ui.TimeRangePainter, wtf.ui.PaintContext);
+goog.inherits(wtf.ui.TimeRangePainter, wtf.ui.Painter);
 
 
 /**
  * Sets the visible time range.
- * @param {number} timeOffset Time of the first event in the database.
  * @param {number} timeLeft Left-most visible time.
  * @param {number} timeRight Right-most visible time.
  */
-wtf.ui.TimeRangePainter.prototype.setTimeRange = function(
-    timeOffset, timeLeft, timeRight) {
-  this.timeOffset = timeOffset;
+wtf.ui.TimeRangePainter.prototype.setTimeRange = function(timeLeft, timeRight) {
   this.timeLeft = timeLeft;
   this.timeRight = timeRight;
 };

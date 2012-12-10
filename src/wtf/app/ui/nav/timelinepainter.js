@@ -23,13 +23,13 @@ goog.require('wtf.ui.TimeRangePainter');
 
 /**
  * Timeline painter.
- * @param {!wtf.ui.PaintContext} parentContext Parent paint context.
+ * @param {!HTMLCanvasElement} canvas Canvas element.
  * @param {!wtf.app.ui.DocumentView} documentView Document view.
  * @constructor
  * @extends {wtf.ui.TimeRangePainter}
  */
-wtf.app.ui.nav.TimelinePainter = function(parentContext, documentView) {
-  goog.base(this, parentContext);
+wtf.app.ui.nav.TimelinePainter = function(canvas, documentView) {
+  goog.base(this, canvas);
 
   /**
    * Document view.
@@ -68,7 +68,7 @@ wtf.app.ui.nav.TimelinePainter = function(parentContext, documentView) {
             function() {
               var timeLeft = this.frameIndex_.getFirstEventTime();
               var timeRight = this.frameIndex_.getLastEventTime();
-              this.setTimeRange(0, timeLeft, timeRight);
+              this.setTimeRange(timeLeft, timeRight);
               this.requestRepaint();
             }, this);
 
