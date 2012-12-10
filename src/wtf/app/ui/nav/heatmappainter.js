@@ -240,10 +240,10 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
   // Now snap that to a greater of equal integral power of 2.
 //  var log2 = Math.log(unsnappedBucketDuration) / Math.LN2;
 //  var bucketDuration = Math.pow(2, Math.ceil(log2));
-  var bucketWidth = 1; //bucketDuration * pixelsPerMs;
+  var bucketWidth = 2; //bucketDuration * pixelsPerMs;
 
   var buckets = this.cachedBuckets_;
-  var bucketCount = width; //Math.ceil(width / bucketWidth) + 1;
+  var bucketCount = Math.ceil(width / bucketWidth) + 1;
   if (buckets.length != bucketCount) {
     buckets = this.cachedBuckets_ = new Float32Array(bucketCount);
   } else {
@@ -271,7 +271,7 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
         weight = 1;
       }
   //    var bucketIndex = Math.floor((mid - bucketTimeLeft) / bucketDuration);
-  var bucketIndex= Math.floor(wtf.math.remap(mid, timeLeft, timeRight, 0, width));
+  var bucketIndex= Math.floor(wtf.math.remap(mid, timeLeft, timeRight, 0, width / bucketWidth));
       if (bucketIndex >= 0 && bucketIndex < buckets.length) {
         var bucketValue = buckets[bucketIndex];
         bucketValue += weight;
@@ -280,9 +280,9 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
     }, this);
   }
 
-  uniform_blur(buckets, new Array(15));
-  uniform_blur(buckets, new Array(15));
-  uniform_blur(buckets, new Array(15));
+  uniform_blur(buckets, new Array(7));
+  uniform_blur(buckets, new Array(7));
+  uniform_blur(buckets, new Array(7));
 
   var bucketMax = 0;
   for (var n = 0; n < buckets.length; n++) {
@@ -291,14 +291,15 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
     }
   }
 
-  ctx.fillStyle = this.color_;
+  //ctx.fillStyle = this.color_;
   var bucketTime = bucketTimeLeft;
   var rectLeft = wtf.math.remap(bucketTime, timeLeft, timeRight, 0, width);
   for (var n = 0; n < buckets.length; n++) {
     var value = buckets[n] / bucketMax;
     if (value) {
       var bx = rectLeft; //wtf.math.remap(bucketTime, timeLeft, timeRight, 0, width);
-      ctx.globalAlpha = value;
+      //ctx.globalAlpha = value;
+      ctx.fillStyle = heatmap_color(value);
       ctx.fillRect(bx, y, bucketWidth, h);
     }
 
@@ -318,22 +319,57 @@ wtf.app.ui.nav.HeatmapPainter.Bar_.prototype.draw = function(
   ctx.globalAlpha = 1;
 };
 
+// returns a color where:
+//   0: transparent blue
+//   .25: solid blue
+//   .75: solid green
+//   1: solid red
+function heatmap_color(val) {
+  if (val < .25) {
+    return 'rgba(0,0,255,' + (val * 4) + ')';
+  } else if (val < .75) {
+    var g = Math.floor(255 * 2 * (val - .25));
+    return 'rgba(0,' + g + ',' + (255 - g) + ',1)';
+  } else {
+    var r = Math.floor(255 * 4 * (val - .75));
+    return 'rgba(' + r + ',' + (255 - r) + ',0,1)';
+  }
+}
+
 function uniform_blur(A, b) {
   var aLen = A.length;
   var bLen = b.length;
   var mid = (bLen - 1) / 2;
   var sum = 0;
+  for (var i = 0; i < aLen + mid; i++) {
+    var j = i % bLen;
+    var oldVal = (i >= bLen) ? b[j] : 0;
+    var newVal = (i < aLen) ? A[i] : 0;
+    sum -= oldVal;
+    b[j] = newVal;
+    sum += newVal;
+    A[i - mid] = sum / bLen;
+  }
+  /*
   for (var i = 0; i < bLen; i++) {
+    b[i] = 0;
+  }
+  for (var i = 0; i < mid; i++) {
     b[i] = A[i];
     sum += b[i];
   }
-  A[bLen - 1 - mid] = sum / bLen;
-  for (var i = bLen; i < aLen; i++) {
+  for (var i = mid; i < aLen; i++) {
     var j = i % bLen;
     sum -= b[j];
     b[j] = A[i];
     sum += A[i];
     A[i - mid] = sum / bLen;
   }
+  for (var i = aLen; i < aLen + mid; i++) {
+    var j = i % bLen;
+    sum -= b[j];
+    A[i - mid] = sum / bLen;
+  }
+  */
 }
 
