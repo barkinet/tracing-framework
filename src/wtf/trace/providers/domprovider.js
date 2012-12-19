@@ -15,7 +15,9 @@ goog.provide('wtf.trace.providers.DomProvider');
 
 goog.require('goog.Disposable');
 goog.require('goog.asserts');
+goog.require('goog.events.EventType');
 goog.require('goog.userAgent.product');
+goog.require('wtf.trace');
 goog.require('wtf.trace.Provider');
 goog.require('wtf.trace.events');
 
@@ -198,13 +200,13 @@ wtf.trace.providers.DomProvider.prototype.injectEvents_ = function() {
         goog.global['document']['body']);
   }
 
+  // TODO(benvanik): remove from here as specialized implementations are added.
   // Hook special type on* events.
   var eventInstrumentedTypes = [
     // 'Audio',
     // 'File',
     // 'FileReader',
-    'Image',
-    'XMLHttpRequest'
+    'Image'
   ];
   for (var n = 0; n < eventInstrumentedTypes.length; n++) {
     var instrumentedType = instrumentedTypeMap[eventInstrumentedTypes[n]];
@@ -238,7 +240,152 @@ wtf.trace.providers.DomProvider.prototype.injectEvents_ = function() {
         });
   }
 
+  this.injectXhr_(instrumentedTypeMap['XMLHttpRequest']);
+
   // TODO(benvanik): find a way to add object events to HTML elements?
+};
+
+
+/**
+ * Injects XHR methods.
+ * @param {!wtf.trace.providers.DomProvider.InstrumentedType} type Type.
+ * @private
+ */
+wtf.trace.providers.DomProvider.prototype.injectXhr_ = function(type) {
+  var proto = type.classPrototype_;
+
+  // Hook on* events.
+  type.prepareOnEventHooks();
+  type.hookObjectEvents();
+
+  var originalOpen = proto['open'];
+  this.injectFunction(proto, 'open',
+      function(method, url, opt_async, opt_user, opt_password) {
+        this['__wtf_xhr_method__'] = method;
+        this['__wtf_xhr_url__'] = url;
+        var props = {
+          'async': opt_async === undefined ? true : opt_async,
+          'user': opt_user,
+          'headers': {}
+        };
+        this['__wtf_xhr_props__'] = props;
+        originalOpen.apply(this, arguments);
+      });
+
+  var originalSetRequestHeader = proto['setRequestHeader'];
+  this.injectFunction(proto, 'setRequestHeader', function(header, value) {
+    var props = this['__wtf_xhr_props__'];
+    if (props) {
+      props['headers'][header] = value;
+    }
+    originalSetRequestHeader.apply(this, arguments);
+  });
+
+  var originalOverrideMimeType = proto['overrideMimeType'];
+  this.injectFunction(proto, 'overrideMimeType', function(mime) {
+    var props = this['__wtf_xhr_props__'];
+    if (props) {
+      props['overrideMimeType'] = mime;
+    }
+    originalOverrideMimeType.apply(this, arguments);
+  });
+
+  var sendEvent = wtf.trace.events.createScope(
+      'XMLHttpRequest#send(ascii method, ascii url, utf8 props)');
+  var originalSend = proto['send'];
+  this.injectFunction(proto, 'send', function(opt_data) {
+    var props = this['__wtf_xhr_props__'];
+    if (props) {
+      props['responseType'] = this.responseType;
+      props['timeout'] = this.timeout;
+      props['withCredentials'] = this.withCredentials;
+      // TOOD(benvanik): data information (size/etc)
+    }
+
+    var flow = wtf.trace.branchFlow('send');
+    this['__wtf_xhr_flow__'] = flow;
+    // TODO(benvanik): append method/url/props to flow
+
+    if (!this['__wtf_event_hook_readystatechange']) {
+      this['__wtf_event_hook_readystatechange'] = readyStateChangeHook;
+      this.addEventListener(
+          goog.events.EventType.READYSTATECHANGE,
+          wtf.trace.ignoreListener(readyStateChangeAppender),
+          true);
+    }
+
+    var scope = sendEvent(
+        this['__wtf_xhr_method__'],
+        this['__wtf_xhr_url__'],
+        flow);
+
+    // TODO(benvanik): find a way to do this - may need an option.
+    // Right now this breaks cross-origin XHRs. The server would need to
+    // say its allowed, perhaps via an OPTION tag.
+    //originalSetRequestHeader.call(this, 'X-WTF-XHR-FlowID', flow.getId());
+
+    originalSend.apply(this, arguments);
+
+    scope.leave();
+  });
+
+  var abortEvent = wtf.trace.events.createScope(
+      'XMLHttpRequest#abort()');
+  var originalAbort = proto['abort'];
+  this.injectFunction(proto, 'abort', function() {
+    var scope = abortEvent();
+    var flow = this['__wtf_xhr_flow__'];
+    if (flow) {
+      flow.terminate('aborted');
+      delete this['__wtf_xhr_flow__'];
+    }
+    originalAbort.apply(this, arguments);
+    scope.leave();
+  });
+
+  // Add data to each onreadystatechange event.
+  function readyStateChangeHook() {
+    wtf.trace.appendScopeData('readyState', this.readyState);
+  };
+
+  // Flow control data.
+  // This onreadystatechange handler is inserted on each XHR, even if the user
+  // doesn't hook any events.
+  // It should not be used for timing, only information.
+  function readyStateChangeAppender() {
+    var flow = this['__wtf_xhr_flow__'];
+    if (!flow) {
+      return;
+    }
+
+    // Extend flow, terminate if required.
+    if (this.readyState < 4) {
+      flow.extend('readyState: ' + this.readyState);
+    } else {
+      flow.terminate('readyState: ' + this.readyState);
+    }
+
+    if (this.readyState == 2) {
+      var headers = {};
+      var allHeaders = this.getAllResponseHeaders().split('\r\n');
+      for (var n = 0; n < allHeaders.length; n++) {
+        if (allHeaders[n].length) {
+          var parts = allHeaders[n].split(':');
+          headers[parts[0]] = parts[1];
+        }
+      }
+
+      // TODO(benvanik): append data to flow, not the event.
+      //     This needs the flow data append method.
+      // wtf.trace.appendScopeData('props', {
+      //   'status': this.status,
+      //   'statusText': this.statusText,
+      //   'headers': headers
+      // });
+    }
+
+    // TODO(benvanik): response size/type/etc
+  };
 };
 
 
@@ -371,6 +518,9 @@ wtf.trace.providers.DomProvider.InstrumentedType.prototype.injectEventTarget_ =
         }
         var wrappedEventListener = function wrappedEventListener(e) {
           var scope = this['__wtf_ignore__'] ? null : eventType();
+          if (this['__wtf_event_hook_' + type]) {
+            this['__wtf_event_hook_' + type](this);
+          }
           try {
             if (listener['handleEvent']) {
               // Listener is an EventListener.
@@ -503,10 +653,12 @@ wtf.trace.providers.DomProvider.InstrumentedType.prototype.hookObjectEvents =
     // Hook constructor.
     goog.global[this.name_] = function() {
       var result = new originalCtor();
+
       // Delete the original keys (defineProperty does not allow redefinition).
       for (var n = 0; n < eventInfos.length; n++) {
         delete result[eventInfos[n].name];
       }
+
       return result;
     };
   } else if (wtf.trace.providers.DomProvider.support_.redefineEvent) {

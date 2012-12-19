@@ -49,6 +49,13 @@
 
           console.log('hi');
 
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', 'test-uncompiled.html');
+          xhr.onreadystatechange = function() {
+            console.log('xhr', xhr.readyState);
+          };
+          xhr.send(null);
+
           scope.leave();
         }, 0);
 
